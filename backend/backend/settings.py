@@ -140,22 +140,22 @@ if REDIS_URL.startswith("rediss://"):
     CELERY_REDIS_BACKEND_USE_SSL  = {"ssl_cert_reqs": "none"}
 
 # Celery
-CELERY_BROKER_URL            = REDIS_URL
-CELERY_RESULT_BACKEND        = REDIS_URL
-CELERY_ACCEPT_CONTENT        = ["json"]
-CELERY_TASK_SERIALIZER       = "json"
-CELERY_RESULT_SERIALIZER     = "json"
-CELERY_TIMEZONE              = "UTC"
-CELERY_RESULT_EXTENDED       = True
-CELERY_RESULT_EXPIRES        = 60 * 60 * 24
-CELERY_TASK_MAX_RETRIES      = 3
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "UTC"
+CELERY_RESULT_EXTENDED = True
+CELERY_RESULT_EXPIRES = 60 * 60 * 24
+CELERY_TASK_MAX_RETRIES = 3
 CELERY_TASK_DEFAULT_RETRY_DELAY = 5
-CELERY_TASK_SOFT_TIME_LIMIT  = 60 * 30
-CELERY_TASK_TIME_LIMIT       = 60 * 35
+CELERY_TASK_SOFT_TIME_LIMIT = 60 * 30
+CELERY_TASK_TIME_LIMIT = 60 * 35
 
 # File uploads
-MEDIA_ROOT  = os.environ.get("MEDIA_ROOT", os.path.join(BASE_DIR, "media"))
-UPLOAD_DIR  = os.path.join(MEDIA_ROOT, "uploads")
+MEDIA_ROOT = os.environ.get("MEDIA_ROOT", os.path.join(BASE_DIR, "media"))
+UPLOAD_DIR = os.path.join(MEDIA_ROOT, "uploads")
 RESULTS_DIR = os.path.join(MEDIA_ROOT, "results")
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 500 * 1024 * 1024
@@ -168,7 +168,7 @@ HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY", "")
 MODEL = os.environ.get("HUGGINGFACE_MODEL", "meta-llama/Llama-3.1-8B-Instruct")
 
 # Static files
-STATIC_URL  = "/static/"
+STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 # Password validation
