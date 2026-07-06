@@ -26,7 +26,7 @@ A web application for large-scale CSV and Excel pattern matching and replacement
 - [LLM Integration](#llm-integration)
 - [Identity Model](#identity-model)
 - [Trade-offs & Notes](#trade-offs--notes)
-- [Issues faced](#Issues--faced--during--development)
+- [Issues faced](#issues--faced--during--development)
 
 ---
 
