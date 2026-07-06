@@ -1,6 +1,6 @@
 # DataMorph
 
-A web application for large-scale CSV and Excel pattern matching and replacement. Users describe a pattern in plain English, an LLM converts it to a regex, and a distributed processing engine applies it across the file — all without blocking the UI.
+A web application for large-scale CSV and Excel pattern matching and replacement. Users describe a pattern in plain English, an LLM converts it to a regex, and a distributed processing engine applies it across the file.
 
 ---
 
@@ -43,12 +43,12 @@ A web application for large-scale CSV and Excel pattern matching and replacement
 ┌─────────────────────────────────────────────────────────────────┐
 │  Django REST API  (Railway — Waitress WSGI)                     │
 │                                                                 │
-│  POST /api/uploads/     → validate, save to volume, dispatch   │
-│  GET  /api/uploads/:id/ → return metadata + column info        │
+│  POST /api/uploads/     → validate, save to volume, dispatch    │
+│  GET  /api/uploads/:id/ → return metadata + column info         │
 │  POST /api/jobs/        → create Job record, dispatch to Celery │
-│  GET  /api/jobs/:id/    → poll status + progress (0–100 %)     │
-│  GET  /api/jobs/:id/result/ → paginated Parquet rows           │
-│  DELETE /api/uploads/:id/   → delete upload + associated jobs  │
+│  GET  /api/jobs/:id/    → poll status + progress (0–100 %)      │
+│  GET  /api/jobs/:id/result/ → paginated Parquet rows            │
+│  DELETE /api/uploads/:id/   → delete upload + associated jobs   │
 └────────────────────────┬────────────────────────────────────────┘
                          │ enqueue task
                          ▼
@@ -56,7 +56,7 @@ A web application for large-scale CSV and Excel pattern matching and replacement
 │  Redis  (Railway managed)                                       │
 │  • Celery message broker                                        │
 │  • Celery result backend                                        │
-│  • LLM regex cache  (7-day TTL, keyed by SHA-256 of prompt)    │
+│  • LLM regex cache  (7-day TTL, keyed by SHA-256 of prompt)     │
 └────────────────────────┬────────────────────────────────────────┘
                          │ task received
                          ▼
@@ -64,20 +64,20 @@ A web application for large-scale CSV and Excel pattern matching and replacement
 │  Celery Worker  (same Railway service, shared volume)           │
 │                                                                 │
 │  inspect_upload_task                                            │
-│    └─ reads uploaded file → extracts column names + row count  │
+│    └─ reads uploaded file → extracts column names + row count   │
 │                                                                 │
 │  run_job_task                                                   │
-│    ├─ calls Llama 3.1-8B via HuggingFace Inference API         │
-│    ├─ validates + caches generated regex in Redis              │
-│    ├─ runs pandas/PySpark replacement across target columns    │
-│    └─ writes result to Parquet on shared Railway Volume        │
+│    ├─ calls Llama 3.1-8B via HuggingFace Inference API          │
+│    ├─ validates + caches generated regex in Redis               │
+│    ├─ runs pandas/PySpark replacement across target columns     │
+│    └─ writes result to Parquet on shared Railway Volume         │
 └────────────────────────┬────────────────────────────────────────┘
                          │ reads / writes
                          ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  Shared Storage                                                 │
-│  • Railway Volume mounted at /app/media (uploads + results)    │
-│  • Neon PostgreSQL (jobs, uploads, sessions, celery results)   │
+│  • Railway Volume mounted at /app/media (uploads + results)     │
+│  • Neon PostgreSQL (jobs, uploads, sessions, celery results)    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -98,16 +98,16 @@ A web application for large-scale CSV and Excel pattern matching and replacement
 | Concern | Choice | Reason |
 |---|---|---|
 | Web framework | Django + DRF | Mature ORM, built-in sessions/admin, excellent async-task integration with Celery |
-| WSGI server | Waitress | Pure Python, zero config files, deterministic bind behaviour — avoids the config-file ambiguity issues that affect Gunicorn |
+| WSGI server | Waitress | Pure Python, zero config files, deterministic bind behaviour, avoids the config-file ambiguity issues that affect Gunicorn. Tried using Guincorn but was failing. |
 | Task queue | Celery | Industry standard for Django async work; supports retries, backoff, cancellation, and progress reporting out of the box |
-| Message broker | Redis (Railway) | Single service used as broker, result backend, and LLM cache — reduces infrastructure surface area |
+| Message broker | Redis (Railway) | Single service used as broker, result backend, and LLM cache reduces infrastructure surface area |
 | Database | Neon PostgreSQL | Serverless Postgres with a generous free tier; always-on (no sleep), scales to millions of rows |
 | Data engine | PySpark (local mode) + pandas fallback | PySpark scales horizontally across partitions for large files; pandas is used locally and as a fallback when JVM memory is constrained |
 | LLM | Llama 3.1-8B via HuggingFace Inference API | Free tier, no API key cost, abstracted behind LangChain so the model is swappable via an environment variable |
 | LLM caching | Redis | Identical prompts never hit the model twice; 7-day TTL strikes a balance between freshness and cost |
 | Frontend | React + Vite + Tailwind CSS v3 | Fast HMR, minimal configuration, utility-first styling |
 | Frontend hosting | Vercel | Zero-config deployment for Vite projects, global CDN |
-| Result format | Parquet | Columnar, compressed, fast to read arbitrary page slices — ideal for serving paginated results from large datasets |
+| Result format | Parquet | Columnar, compressed, fast to read arbitrary page slices ideal for serving paginated results from large datasets |
 
 ---
 
@@ -272,29 +272,6 @@ docker-compose up --build
 
 ---
 
-## Production Deployment
-
-The production stack uses fully managed cloud services:
-
-| Component | Provider | Notes |
-|---|---|---|
-| Frontend | Vercel | Connected to GitHub, auto-deploys on push |
-| Backend + Worker | Railway | Single service running both Waitress and Celery via shared process |
-| Redis | Railway managed Redis | Used as Celery broker, result backend, and LLM cache |
-| PostgreSQL | Neon | Serverless Postgres, always-on free tier |
-| File storage | Railway Volume | Shared mount at `/app/media` accessible to both web and worker processes |
-
-### Deploy to Railway
-
-1. Push the repository to GitHub.
-2. In Railway, create a new project → **Deploy from GitHub repo**.
-3. Add a **PostgreSQL** plugin and a **Redis** plugin — Railway injects `DATABASE_URL` and `REDIS_URL` automatically.
-4. Add a **Volume** mounted at `/app/media`.
-5. Set the following environment variables (see [Environment Variables Reference](#environment-variables-reference)).
-6. Set the start command:
-   ```
-   python manage.py migrate && waitress-serve --host=0.0.0.0 --port=8000 backend.wsgi:application & celery -A backend worker --loglevel=info --concurrency=1
-   ```
 7. Generate a public domain in Settings → Networking → Generate Domain.
 
 ### Deploy Frontend to Vercel
