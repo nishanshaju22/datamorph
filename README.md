@@ -460,3 +460,99 @@ Anyone who knows a client's UUID can see their data. Adding real auth in future 
 **File persistence:** Uploaded files and Parquet results are stored on a Railway Volume. If the service is redeployed or the volume is detached, files are lost. A production deployment should use object storage (S3, Cloudflare R2) for durability.
 
 **Session identity scoping:** Each browser tab generates an independent client UUID (stored in `sessionStorage`). Multiple tabs open simultaneously will not share upload/job history. Closing a tab and reopening the app generates a new UUID, and previous uploads will not be visible. This was done intentionally, it mirrors session behaviour but differs from a logged-in user experience where history persists across sessions.
+
+---
+
+## Issues faced during development
+
+### 1. LLM Returning Malformed Regex Patterns
+
+**Context:** Integration testing of the LLM → regex pipeline.
+
+**Issue:** Llama 3.1-8B (via HuggingFace Inference API) was returning sed-style patterns (`s/pattern/replace/g`) and patterns with double-escaped backslashes (`\\b` instead of `\b`), causing replacements to silently fail — the regex compiled but matched nothing.
+
+**Resolution:** Three changes were made:
+
+1. **Prompt engineering:** The system prompt was rewritten with explicit Llama chat template formatting (`<|begin_of_text|>`, `<|start_header_id|>`) and concrete few-shot examples showing exact input/output pairs.
+2. **Response cleaning:** `_clean_response()` was updated to detect and strip sed-style output, extracting the middle segment of `s/pattern/replacement/flags`.
+3. **Redis cache flush:** Stale malformed patterns were cached in Redis. Running `redis-cli FLUSHALL` cleared them so fresh correct patterns could be cached on the next request.
+
+---
+
+
+### 2. Multi-Column Replacement Only Affecting First Column
+
+**Context:** Integration testing with multiple target columns selected.
+
+**Issue:** When a user selected two or more columns, only the first column was modified. Subsequent columns were unchanged despite the loop appearing correct.
+
+**Resolution:** The bug was a Python closure scoping issue in the pandas `apply` lambda. The loop variable `col` was captured by reference, not by value, so by the time the lambda executed, `col` had already advanced to the next iteration. Fixed by capturing the value as a default argument:
+
+```python
+df[col_name] = df[col_name].astype(str).apply(
+    lambda val, c=compiled, r=replacement: re.sub(c, r, val)
+)
+```
+
+The same principle was applied to the PySpark engine, where column name variables were explicitly snapshotted before the `withColumn` call to prevent lazy evaluation from referencing a stale binding.
+
+---
+
+
+### 3. Gunicorn Binding to 127.0.0.1 Instead of 0.0.0.0
+
+**Context:** Docker Compose deployment, later Railway deployment.
+
+**Issue:** Despite the `docker-compose.yml` command specifying `--bind 0.0.0.0:8000`, Gunicorn consistently bound to `127.0.0.1`, making the service unreachable from outside the container.
+
+**Investigation:** `docker-compose config` confirmed the resolved command was correct. The root cause was that the local `.venv` directory was being copied into the Docker build context (the `.dockerignore` was missing), and the local Gunicorn installation inside `.venv` had a config file that overrode the command-line flag.
+
+**Resolution:** Two changes:
+1. A `backend/.dockerignore` was created excluding `.venv`, `__pycache__`, `db.sqlite3`, and `media/`.
+2. Gunicorn was replaced entirely with **Waitress** (`waitress-serve --host=0.0.0.0 --port=8000`), a pure-Python WSGI server with no config file lookup and deterministic bind behaviour.
+
+---
+
+
+### 4. Railway Deployment — Application Exiting Early (502)
+
+**Context:** Railway deployment.
+
+**Issue:** The service built successfully but returned 502 on every request. Deploy logs showed the container starting but no application output after migration.
+
+**Investigation:** The `python manage.py migrate && waitress-serve ...` command was the culprit. The `&&` chain meant that if `migrate` hung or failed silently (due to a Neon PostgreSQL connection issue with `channel_binding=require`), waitress never started.
+
+**Resolution:** Two steps:
+1. The `channel_binding=require` parameter was removed from the Neon `DATABASE_URL` — psycopg2 does not support this parameter.
+2. Migrations were run manually from the local machine pointing at the Neon database URL, decoupling the migration step from the server startup. The Railway start command was simplified to just `waitress-serve --host=0.0.0.0 --port=8000 backend.wsgi:application`.
+
+---
+
+
+### 5. File Not Found on Worker Container
+
+**Context:** Production deployment on Railway with separate web and worker services.
+
+**Issue:** After a file was uploaded via the web service, the Celery worker would fail with `FileNotFoundError` because the uploaded file existed on the web container's local filesystem but not on the worker container's filesystem.
+
+**Resolution:** The web and worker services were consolidated into a **single Railway service** running both processes (Waitress and Celery) via a combined start command with a shared Railway Volume mounted at `/app/media`. Both processes read and write to the same volume, eliminating the filesystem isolation problem without requiring external object storage (e.g. S3/R2).
+
+---
+
+
+### 6. Cross-Origin Session Cookies Blocked by Browser
+
+**Context:** Production deployment: Vercel frontend, Railway backend.
+
+**Issue:** Django's session-based identity (`request.session.session_key`) was used to scope uploads and jobs to individual users. When the frontend (Vercel, `*.vercel.app`) made requests to the backend (Railway, `*.up.railway.app`), the browser refused to send the session cookie. This was a `SameSite` cross-origin restriction — confirmed by `REQUEST COOKIES: {}` appearing in the Django request logs.
+
+**Attempted fixes that did not resolve it:**
+- Setting `SESSION_COOKIE_SAMESITE = "None"` and `SESSION_COOKIE_SECURE = True`
+- Ensuring `CORS_ALLOW_CREDENTIALS = True` and `withCredentials: true` in Axios
+- Various `CORS_ALLOW_HEADERS` configurations
+
+**Root cause:** Even with correct `SameSite=None; Secure` cookie settings, some browsers and network configurations (proxies, CDN edge nodes) strip or refuse third-party cookies regardless. The underlying problem is architectural — relying on cookies for identity across different root domains is inherently fragile.
+
+**Resolution:** Session cookies were replaced entirely with a **client-generated UUID sent as a custom HTTP header (`X-Client-Id`)**. The existing `session_key` database column was repurposed to store this UUID — no migration was required. The frontend generates the UUID once per browser tab using `crypto.randomUUID()`, persists it in `sessionStorage`, and attaches it to every request via an Axios request interceptor. The backend reads it from `request.META.get("HTTP_X_CLIENT_ID")`. This approach requires no cookies, no credentials, and no `SameSite` configuration.
+
+---
