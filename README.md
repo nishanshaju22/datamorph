@@ -451,7 +451,7 @@ Before any pattern is applied to data, `_validate_regex()` checks:
 cache_key = f"llm:regex:{sha256(prompt.lower().strip())[:16]}"
 ```
 
-Every generated pattern is cached in Redis for 7 days. Identical prompts never reach the model. This is particularly important for high-traffic scenarios where many users might describe the same common pattern (e.g. "find email addresses").
+Every generated pattern is cached in Redis for 7 days. Identical prompts never reach the model.
 
 ---
 
@@ -479,14 +479,14 @@ Anyone who knows a client's UUID can see their data. Adding real auth in future 
 
 ## Trade-offs & Notes
 
-**Shared process (web + worker):** In production, Waitress and Celery run in the same Railway service via a combined start command (`... & celery ...`). This simplifies deployment and enables the shared Railway Volume for file storage. The trade-off is that resource contention is possible under heavy load — a production-scale deployment would separate them into distinct services with dedicated resources and use S3/R2 for file storage.
+**Shared process (web + worker):** In production, Waitress and Celery run in the same Railway service via a combined start command (`... & celery ...`). This simplifies deployment and enables the shared Railway Volume for file storage. The trade-off is that resource contention is possible under heavy load, a production-scale deployment would separate them into distinct services with dedicated resources and use S3/R2 for file storage.
 
-**PySpark in local mode:** PySpark runs in `local[*]` mode, using all cores on a single machine. This is not a true distributed cluster — for horizontal scaling across multiple machines, a Spark cluster (e.g. Databricks, EMR) would be required. For the scale described in the specification (millions of rows on a single machine), local mode with adequate memory is sufficient and avoids the operational complexity of a cluster.
+**PySpark in local mode:** PySpark runs in `local[*]` mode, using all cores on a single machine. This is not a true distributed cluster for horizontal scaling across multiple machines, a Spark cluster (e.g. Databricks, EMR) would be required. For the scale described in the specification (millions of rows on a single machine), local mode with adequate memory is sufficient and avoids the operational complexity of a cluster. PySpark is resource heavy and so on a free account it was not possible to deploy it hence PySpark only runs whrn `USE_SPARK` in the env is set to `true`. Docker-compose with `USE_SPARK="true` on `.env` will run pyspark.
 
-**No WebSockets:** Progress updates are delivered via polling (`GET /api/jobs/:id/` every 2 seconds) rather than WebSockets. For this use case — where a job takes 2–30 seconds — polling is simple and effective. WebSockets would add complexity without a meaningful UX improvement.
+**No WebSockets:** Progress updates are delivered via polling (`GET /api/jobs/:id/` every 2 seconds) rather than WebSockets. For this use case where a job takes 2–30 seconds polling is simple and effective. WebSockets would add complexity without a meaningful UX improvement.
 
 **Regex safety:** The LLM occasionally generates patterns with catastrophic backtracking potential. The validator catches the most common constructs, but it is not exhaustive. A production deployment should run regex matching in a separate subprocess with a timeout to fully isolate backtracking risks.
 
 **File persistence:** Uploaded files and Parquet results are stored on a Railway Volume. If the service is redeployed or the volume is detached, files are lost. A production deployment should use object storage (S3, Cloudflare R2) for durability.
 
-**Session identity scoping:** Each browser tab generates an independent client UUID (stored in `sessionStorage`). Multiple tabs open simultaneously will not share upload/job history. Closing a tab and reopening the app generates a new UUID, and previous uploads will not be visible. This is intentional — it mirrors session behaviour — but differs from a logged-in user experience where history persists across sessions.
+**Session identity scoping:** Each browser tab generates an independent client UUID (stored in `sessionStorage`). Multiple tabs open simultaneously will not share upload/job history. Closing a tab and reopening the app generates a new UUID, and previous uploads will not be visible. This was done intentionally, it mirrors session behaviour but differs from a logged-in user experience where history persists across sessions.
