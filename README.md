@@ -455,25 +455,25 @@ Every generated pattern is cached in Redis for 7 days. Identical prompts never r
 
 ---
 
-## Identity Model
+## Authentication
 
-There is no authentication in this application — it was not a requirement of the specification. User identity is handled by a client-generated UUID sent as a custom HTTP header (`X-Client-Id`) on every request.
+There is no authentication in this app. For quick development authentication was not introduced, so the focus can be on designing and developing the main functionality. User identity is handled by a client-generated UUID sent as a custom HTTP header (`X-Client-Id`) on every request.
 
 ### How it works
 
-**Frontend:** on first load, `crypto.randomUUID()` generates a UUID and stores it in `sessionStorage` under the key `datamorph_client_id`. An Axios request interceptor attaches it as `X-Client-Id` on every outbound request automatically — no component code needs to handle it explicitly.
+**Frontend:** on first load, `crypto.randomUUID()` generates a UUID and stores it in `sessionStorage` under the key `datamorph_client_id`. An Axios request interceptor attaches it as `X-Client-Id` on every outbound request.
 
-**Backend:** `core_utils.get_client_id(request)` reads `request.META.get("HTTP_X_CLIENT_ID")` and returns it. All upload and job queries filter by this value, which is stored in the existing `session_key` database column (no migration required).
+**Backend:** `core_utils.get_client_id(request)` reads `request.META.get("HTTP_X_CLIENT_ID")` and returns it. All upload and job queries filter by this value, which is stored in the existing `session_key` database column.
 
 ### Why not cookies?
 
-The initial implementation used Django session cookies. When the frontend was deployed to Vercel (`*.vercel.app`) and the backend to Railway (`*.up.railway.app`), browsers blocked the session cookie due to `SameSite` cross-origin restrictions — confirmed by `REQUEST COOKIES: {}` appearing in request logs. Setting `SameSite=None; Secure` and configuring `CORS_ALLOW_CREDENTIALS` resolved the issue in some environments but remained unreliable across all browsers and network configurations (CDN edge nodes, corporate proxies).
+The initial implementation used Django session cookies. When the frontend was deployed to Vercel and the backend to Railway, browsers blocked the session cookie due to `SameSite` cross-origin restrictions appearing in request logs. While Setting `SameSite=None; Secure` and configuring `CORS_ALLOW_CREDENTIALS` should have resolved the issue it kept generating new tokens on every request and broke the system logic.
 
 The header-based approach is simpler, more reliable, and requires no cookie configuration on either side.
 
 ### Security trade-off
 
-Anyone who knows a client's UUID can see their data. This is an accepted trade-off given that there is no authentication requirement. Adding real auth in future would be a one-line middleware change — the `session_key` column would simply store a user ID instead of a client UUID, and the `get_client_id()` helper would be replaced with `request.user.id`.
+Anyone who knows a client's UUID can see their data. Adding real auth in future would be a one-line middleware change the `session_key` column would simply store a user ID instead of a client UUID, and the `get_client_id()` helper would be replaced with `request.user.id`. Alternatively, a stateless JWT-based authentication system could be introduced, where the user's identity is extracted from the validated JWT on each request. In either approach, the existing data access logic would remain largely unchanged, requiring only minimal modifications to how the client identifier is resolved.
 
 ---
 
