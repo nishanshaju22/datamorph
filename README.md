@@ -385,13 +385,6 @@ for col_name in target_columns:
     )
 ```
 
-**Why PySpark instead of pandas row iteration?**
-
-Pandas applies operations row-by-row in a single Python process. PySpark splits the DataFrame into partitions and processes them in parallel across all available CPU cores. For a 1 million-row file:
-
-- Pandas: single-threaded, memory-constrained, ~minutes
-- PySpark local[*]: all cores in parallel, ~seconds
-
 **Partitioning strategy:**
 
 ```python
@@ -401,13 +394,13 @@ df = df.repartition(num_partitions)
 
 `local[*]` instructs Spark to use all available CPU cores. Repartitioning to `cores × 2` ensures each core has work to do without creating too many small partitions. For CSV inputs Spark reads the file as a single partition by default; explicit repartitioning is required to parallelise.
 
-**Result format — Parquet:**
+**Result format - Parquet:**
 
 Results are written as Parquet via `coalesce(1)` (single output file) rather than one file per partition. Parquet's columnar layout allows the API to read only the columns needed for pagination, and its compression significantly reduces storage for large text datasets.
 
 **Pandas fallback:**
 
-When `USE_SPARK=false`, an equivalent pandas implementation is used. The interface is identical — same function signature, same output path — so switching between engines is a one-line environment variable change.
+When `USE_SPARK=false`, an equivalent pandas implementation is used. The interface has the same function signature, same output path so switching between engines is a one line environment variable change. This is done so in the deployed environment pandas is used. (explained in [Trade-offs & Notes](#trade-offs--notes))
 
 ---
 
