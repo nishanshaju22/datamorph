@@ -1,6 +1,6 @@
 # DataMorph
 
-A web application for large-scale CSV and Excel pattern matching and replacement. Users describe a pattern in plain English, an LLM converts it to a regex, and a distributed processing engine applies it across the file — all without blocking the UI.
+A web application for large-scale CSV and Excel pattern matching and replacement. Users describe a pattern in plain English, an LLM converts it to a regex, and a distributed processing engine applies it across the file.
 
 ---
 
@@ -43,12 +43,12 @@ A web application for large-scale CSV and Excel pattern matching and replacement
 ┌─────────────────────────────────────────────────────────────────┐
 │  Django REST API  (Railway — Waitress WSGI)                     │
 │                                                                 │
-│  POST /api/uploads/     → validate, save to volume, dispatch   │
-│  GET  /api/uploads/:id/ → return metadata + column info        │
+│  POST /api/uploads/     → validate, save to volume, dispatch    │
+│  GET  /api/uploads/:id/ → return metadata + column info         │
 │  POST /api/jobs/        → create Job record, dispatch to Celery │
-│  GET  /api/jobs/:id/    → poll status + progress (0–100 %)     │
-│  GET  /api/jobs/:id/result/ → paginated Parquet rows           │
-│  DELETE /api/uploads/:id/   → delete upload + associated jobs  │
+│  GET  /api/jobs/:id/    → poll status + progress (0–100 %)      │
+│  GET  /api/jobs/:id/result/ → paginated Parquet rows            │
+│  DELETE /api/uploads/:id/   → delete upload + associated jobs   │
 └────────────────────────┬────────────────────────────────────────┘
                          │ enqueue task
                          ▼
@@ -56,7 +56,7 @@ A web application for large-scale CSV and Excel pattern matching and replacement
 │  Redis  (Railway managed)                                       │
 │  • Celery message broker                                        │
 │  • Celery result backend                                        │
-│  • LLM regex cache  (7-day TTL, keyed by SHA-256 of prompt)    │
+│  • LLM regex cache  (7-day TTL, keyed by SHA-256 of prompt)     │
 └────────────────────────┬────────────────────────────────────────┘
                          │ task received
                          ▼
@@ -64,20 +64,20 @@ A web application for large-scale CSV and Excel pattern matching and replacement
 │  Celery Worker  (same Railway service, shared volume)           │
 │                                                                 │
 │  inspect_upload_task                                            │
-│    └─ reads uploaded file → extracts column names + row count  │
+│    └─ reads uploaded file → extracts column names + row count   │
 │                                                                 │
 │  run_job_task                                                   │
-│    ├─ calls Llama 3.1-8B via HuggingFace Inference API         │
-│    ├─ validates + caches generated regex in Redis              │
-│    ├─ runs pandas/PySpark replacement across target columns    │
-│    └─ writes result to Parquet on shared Railway Volume        │
+│    ├─ calls Llama 3.1-8B via HuggingFace Inference API          │
+│    ├─ validates + caches generated regex in Redis               │
+│    ├─ runs pandas/PySpark replacement across target columns     │
+│    └─ writes result to Parquet on shared Railway Volume         │
 └────────────────────────┬────────────────────────────────────────┘
                          │ reads / writes
                          ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  Shared Storage                                                 │
-│  • Railway Volume mounted at /app/media (uploads + results)    │
-│  • Neon PostgreSQL (jobs, uploads, sessions, celery results)   │
+│  • Railway Volume mounted at /app/media (uploads + results)     │
+│  • Neon PostgreSQL (jobs, uploads, sessions, celery results)    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -98,16 +98,16 @@ A web application for large-scale CSV and Excel pattern matching and replacement
 | Concern | Choice | Reason |
 |---|---|---|
 | Web framework | Django + DRF | Mature ORM, built-in sessions/admin, excellent async-task integration with Celery |
-| WSGI server | Waitress | Pure Python, zero config files, deterministic bind behaviour — avoids the config-file ambiguity issues that affect Gunicorn |
+| WSGI server | Waitress | Pure Python, zero config files, deterministic bind behaviour, avoids the config-file ambiguity issues that affect Gunicorn. Tried using Guincorn but was failing. |
 | Task queue | Celery | Industry standard for Django async work; supports retries, backoff, cancellation, and progress reporting out of the box |
-| Message broker | Redis (Railway) | Single service used as broker, result backend, and LLM cache — reduces infrastructure surface area |
+| Message broker | Redis (Railway) | Single service used as broker, result backend, and LLM cache reduces infrastructure surface area |
 | Database | Neon PostgreSQL | Serverless Postgres with a generous free tier; always-on (no sleep), scales to millions of rows |
 | Data engine | PySpark (local mode) + pandas fallback | PySpark scales horizontally across partitions for large files; pandas is used locally and as a fallback when JVM memory is constrained |
 | LLM | Llama 3.1-8B via HuggingFace Inference API | Free tier, no API key cost, abstracted behind LangChain so the model is swappable via an environment variable |
 | LLM caching | Redis | Identical prompts never hit the model twice; 7-day TTL strikes a balance between freshness and cost |
 | Frontend | React + Vite + Tailwind CSS v3 | Fast HMR, minimal configuration, utility-first styling |
 | Frontend hosting | Vercel | Zero-config deployment for Vite projects, global CDN |
-| Result format | Parquet | Columnar, compressed, fast to read arbitrary page slices — ideal for serving paginated results from large datasets |
+| Result format | Parquet | Columnar, compressed, fast to read arbitrary page slices ideal for serving paginated results from large datasets |
 
 ---
 
@@ -272,29 +272,6 @@ docker-compose up --build
 
 ---
 
-## Production Deployment
-
-The production stack uses fully managed cloud services:
-
-| Component | Provider | Notes |
-|---|---|---|
-| Frontend | Vercel | Connected to GitHub, auto-deploys on push |
-| Backend + Worker | Railway | Single service running both Waitress and Celery via shared process |
-| Redis | Railway managed Redis | Used as Celery broker, result backend, and LLM cache |
-| PostgreSQL | Neon | Serverless Postgres, always-on free tier |
-| File storage | Railway Volume | Shared mount at `/app/media` accessible to both web and worker processes |
-
-### Deploy to Railway
-
-1. Push the repository to GitHub.
-2. In Railway, create a new project → **Deploy from GitHub repo**.
-3. Add a **PostgreSQL** plugin and a **Redis** plugin — Railway injects `DATABASE_URL` and `REDIS_URL` automatically.
-4. Add a **Volume** mounted at `/app/media`.
-5. Set the following environment variables (see [Environment Variables Reference](#environment-variables-reference)).
-6. Set the start command:
-   ```
-   python manage.py migrate && waitress-serve --host=0.0.0.0 --port=8000 backend.wsgi:application & celery -A backend worker --loglevel=info --concurrency=1
-   ```
 7. Generate a public domain in Settings → Networking → Generate Domain.
 
 ### Deploy Frontend to Vercel
@@ -385,13 +362,6 @@ for col_name in target_columns:
     )
 ```
 
-**Why PySpark instead of pandas row iteration?**
-
-Pandas applies operations row-by-row in a single Python process. PySpark splits the DataFrame into partitions and processes them in parallel across all available CPU cores. For a 1 million-row file:
-
-- Pandas: single-threaded, memory-constrained, ~minutes
-- PySpark local[*]: all cores in parallel, ~seconds
-
 **Partitioning strategy:**
 
 ```python
@@ -401,13 +371,13 @@ df = df.repartition(num_partitions)
 
 `local[*]` instructs Spark to use all available CPU cores. Repartitioning to `cores × 2` ensures each core has work to do without creating too many small partitions. For CSV inputs Spark reads the file as a single partition by default; explicit repartitioning is required to parallelise.
 
-**Result format — Parquet:**
+**Result format - Parquet:**
 
 Results are written as Parquet via `coalesce(1)` (single output file) rather than one file per partition. Parquet's columnar layout allows the API to read only the columns needed for pagination, and its compression significantly reduces storage for large text datasets.
 
 **Pandas fallback:**
 
-When `USE_SPARK=false`, an equivalent pandas implementation is used. The interface is identical — same function signature, same output path — so switching between engines is a one-line environment variable change.
+When `USE_SPARK=false`, an equivalent pandas implementation is used. The interface has the same function signature, same output path so switching between engines is a one line environment variable change. This is done so in the deployed environment pandas is used. (explained in [Trade-offs & Notes](#trade-offs--notes))
 
 ---
 
@@ -451,7 +421,7 @@ Before any pattern is applied to data, `_validate_regex()` checks:
 cache_key = f"llm:regex:{sha256(prompt.lower().strip())[:16]}"
 ```
 
-Every generated pattern is cached in Redis for 7 days. Identical prompts never reach the model. This is particularly important for high-traffic scenarios where many users might describe the same common pattern (e.g. "find email addresses").
+Every generated pattern is cached in Redis for 7 days. Identical prompts never reach the model.
 
 ---
 
@@ -479,14 +449,14 @@ Anyone who knows a client's UUID can see their data. Adding real auth in future 
 
 ## Trade-offs & Notes
 
-**Shared process (web + worker):** In production, Waitress and Celery run in the same Railway service via a combined start command (`... & celery ...`). This simplifies deployment and enables the shared Railway Volume for file storage. The trade-off is that resource contention is possible under heavy load — a production-scale deployment would separate them into distinct services with dedicated resources and use S3/R2 for file storage.
+**Shared process (web + worker):** In production, Waitress and Celery run in the same Railway service via a combined start command (`... & celery ...`). This simplifies deployment and enables the shared Railway Volume for file storage. The trade-off is that resource contention is possible under heavy load, a production-scale deployment would separate them into distinct services with dedicated resources and use S3/R2 for file storage.
 
-**PySpark in local mode:** PySpark runs in `local[*]` mode, using all cores on a single machine. This is not a true distributed cluster — for horizontal scaling across multiple machines, a Spark cluster (e.g. Databricks, EMR) would be required. For the scale described in the specification (millions of rows on a single machine), local mode with adequate memory is sufficient and avoids the operational complexity of a cluster.
+**PySpark in local mode:** PySpark runs in `local[*]` mode, using all cores on a single machine. This is not a true distributed cluster for horizontal scaling across multiple machines, a Spark cluster (e.g. Databricks, EMR) would be required. For the scale described in the specification (millions of rows on a single machine), local mode with adequate memory is sufficient and avoids the operational complexity of a cluster. PySpark is resource heavy and so on a free account it was not possible to deploy it hence PySpark only runs whrn `USE_SPARK` in the env is set to `true`. Docker-compose with `USE_SPARK="true` on `.env` will run pyspark.
 
-**No WebSockets:** Progress updates are delivered via polling (`GET /api/jobs/:id/` every 2 seconds) rather than WebSockets. For this use case — where a job takes 2–30 seconds — polling is simple and effective. WebSockets would add complexity without a meaningful UX improvement.
+**No WebSockets:** Progress updates are delivered via polling (`GET /api/jobs/:id/` every 2 seconds) rather than WebSockets. For this use case where a job takes 2–30 seconds polling is simple and effective. WebSockets would add complexity without a meaningful UX improvement.
 
 **Regex safety:** The LLM occasionally generates patterns with catastrophic backtracking potential. The validator catches the most common constructs, but it is not exhaustive. A production deployment should run regex matching in a separate subprocess with a timeout to fully isolate backtracking risks.
 
 **File persistence:** Uploaded files and Parquet results are stored on a Railway Volume. If the service is redeployed or the volume is detached, files are lost. A production deployment should use object storage (S3, Cloudflare R2) for durability.
 
-**Session identity scoping:** Each browser tab generates an independent client UUID (stored in `sessionStorage`). Multiple tabs open simultaneously will not share upload/job history. Closing a tab and reopening the app generates a new UUID, and previous uploads will not be visible. This is intentional — it mirrors session behaviour — but differs from a logged-in user experience where history persists across sessions.
+**Session identity scoping:** Each browser tab generates an independent client UUID (stored in `sessionStorage`). Multiple tabs open simultaneously will not share upload/job history. Closing a tab and reopening the app generates a new UUID, and previous uploads will not be visible. This was done intentionally, it mirrors session behaviour but differs from a logged-in user experience where history persists across sessions.
